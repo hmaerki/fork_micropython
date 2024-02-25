@@ -19,12 +19,12 @@ sudo apt update && \
 
 ```bash
 # Banner
-sed -i 's/Raspberry Pi Pico/Raspberry Pi Pico (slow XTAL)/g' ports/rp2/boards/RPI_PICO/mpconfigboard.h
-# Generic FLASH
-# sed -i 's/PICO_BOOT_STAGE2_CHOOSE_W25Q080/PICO_BOOT_STAGE2_CHOOSE_GENERIC_03H/g' lib/pico-sdk/src/boards/include/boards/pico.h
-sed -i 's/#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER 1/#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER 64/g' lib/pico-sdk/src/rp2_common/hardware_xosc/include/hardware/xosc.h
+sed -i 's/Raspberry Pi Pico/Raspberry Pi Pico (slow XTAL, 16MBytes Flash)/g' ports/rp2/boards/RPI_PICO/mpconfigboard.h
+sed -i 's/(1408 \* 1024)/(15 \* 1024 \* 1024)/g' ports/rp2/boards/RPI_PICO/mpconfigboard.h
 # 16 MBytes Flash
-sed -i 's/(2 \* 1024 \* 1024)/(16 * 1024 * 1024)/g' lib/pico-sdk/src/boards/include/boards/pico.h
+sed -i 's/PICO_FLASH_SIZE_BYTES (2 /PICO_FLASH_SIZE_BYTES (16 /g' lib/pico-sdk/src/boards/include/boards/pico.h
+# Slow Xtal
+sed -i 's/#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER 1/#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER 64/g' lib/pico-sdk/src/rp2_common/hardware_xosc/include/hardware/xosc.h
 ```
 
 ## Compile
