@@ -43,3 +43,18 @@ ls -la ./ports/rp2/build-RPI_PICO/firmware.uf2
 ```bash
 git add -f ./ports/rp2/build-RPI_PICO/firmware.uf2
 ```
+
+# Is there another micropython port which would fit our board?
+
+```bash
+grep -r '#define PICO_FLASH_SIZE_BYTES (16 ' ports/rp2/
+ports/rp2/boards/WEACTSTUDIO/weactstudio_16MiB.h:#define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
+ports/rp2/boards/POLOLU_ZUMO_2040_ROBOT/pololu_zumo_2040_robot.h:#define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
+```
+
+```bash
+grep -r '#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER 64' ports/rp2/
+ports/rp2/boards/NULLBITS_BIT_C_PRO/nullbits_bit_c_pro.h
+```
+
+==> There no reasonalbe port for us...
