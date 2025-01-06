@@ -42,7 +42,7 @@ from .transport import TransportError, TransportExecError, Transport
 
 
 class SerialTransport(Transport):
-    def __init__(self, device, baudrate=115200, wait=0, exclusive=True):
+    def __init__(self, device, baudrate=115200, wait=0, exclusive=True, timeout=None):
         self.in_raw_repl = False
         self.use_raw_paste = True
         self.device_name = device
@@ -52,7 +52,11 @@ class SerialTransport(Transport):
         import serial.tools.list_ports
 
         # Set options, and exclusive if pyserial supports it
-        serial_kwargs = {"baudrate": baudrate, "interCharTimeout": 1}
+        serial_kwargs = {
+            "baudrate": baudrate,
+            "timeout": timeout,
+            "interCharTimeout": 1,
+        }
         if serial.__version__ >= "3.3":
             serial_kwargs["exclusive"] = exclusive
 
@@ -97,27 +101,33 @@ class SerialTransport(Transport):
     def read_until(self, min_num_bytes, ending, timeout=10, data_consumer=None):
         # if data_consumer is used then data is not accumulated and the ending must be 1 byte long
         assert data_consumer is None or len(ending) == 1
+        assert isinstance(timeout, (type(None), int, float))
 
-        data = self.serial.read(min_num_bytes)
-        if data_consumer:
-            data_consumer(data)
-        timeout_count = 0
+        data = b""
+        begin_s = time.monotonic()
         while True:
+            if self.serial.inWaiting() <= 0:
+                # Wait for input
+                time.sleep(0.01)
+                continue
+
+            new_data = self.serial.read(1)
+            if data_consumer:
+                data_consumer(new_data)
+                data = new_data
+            else:
+                data = data + new_data
+
+            if min_num_bytes > 1:
+                # Make sure 'min_num_bytes' are read before
+                # testing for 'ending'.
+                min_num_bytes -= 1
+                continue
+
             if data.endswith(ending):
                 break
-            elif self.serial.inWaiting() > 0:
-                new_data = self.serial.read(1)
-                if data_consumer:
-                    data_consumer(new_data)
-                    data = new_data
-                else:
-                    data = data + new_data
-                timeout_count = 0
-            else:
-                timeout_count += 1
-                if timeout is not None and timeout_count >= 100 * timeout:
-                    break
-                time.sleep(0.01)
+            if timeout and time.monotonic() > begin_s + timeout:
+                break
         return data
 
     def enter_raw_repl(self, soft_reset=True):
