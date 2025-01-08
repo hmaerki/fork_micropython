@@ -114,6 +114,8 @@ size-files:
 submodules:
 	@GIT_SUBMODULES=$$(idf.py $(IDFPY_FLAGS) -B $(BUILD)/submodules -D ECHO_SUBMODULES=1 build 2>&1 | \
 	                  grep '^GIT_SUBMODULES=' | cut -d= -f2); \
+	rm -rf ./managed_components; \
+	echo "${BOARD_DIR}" > debug_board_dir.txt; \
 	echo "${BUILD}" > debug_build.txt; \
 	echo "${GIT_SUBMODULES}" > debug_git_submodules.txt; \
 	$(MAKE) -f ../../py/mkrules.mk GIT_SUBMODULES="$${GIT_SUBMODULES}" submodules
