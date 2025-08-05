@@ -27,8 +27,8 @@ elif sys.platform == "mimxrt":
     i2c_kwargs = {}
     clock_stretch_us = 50  # mimxrt cannot delay too long in the IRQ handler
 elif sys.platform == "rp2":
-    i2c_args = (0,)
-    i2c_kwargs = {"scl": 9, "sda": 8}
+    i2c_args = (1,)
+    i2c_kwargs = {"scl": 11, "sda": 10}
 elif sys.platform == "pyboard":
     i2c_args = ("Y",)
     i2c_kwargs = {}
