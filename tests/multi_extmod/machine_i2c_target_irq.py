@@ -22,6 +22,9 @@ clock_stretch_us = 200
 if sys.platform == "alif":
     i2c_args = (1,)  # pins P3_7/P3_6
     i2c_kwargs = {}
+elif sys.platform == "esp32":
+    i2c_args = (1,)  # on pins 9/8 for C3 and S3, 18/19 for others
+    i2c_kwargs = {"scl": 9, "sda": 8}
 elif sys.platform == "mimxrt":
     i2c_args = (0,)  # pins 19/18 on Teensy 4.x
     i2c_kwargs = {}

@@ -18,7 +18,7 @@ if sys.platform == "alif":
     i2c_kwargs = {}
 elif sys.platform == "esp32":
     i2c_args = (1,)  # on pins 9/8
-    i2c_kwargs = {}
+    i2c_kwargs = {"scl": 9, "sda": 8}
 elif sys.platform == "mimxrt":
     i2c_args = (0,)  # pins 19/18 on Teensy 4.x
     i2c_kwargs = {}
