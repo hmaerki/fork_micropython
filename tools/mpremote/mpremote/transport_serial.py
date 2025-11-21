@@ -121,6 +121,7 @@ class SerialTransport(Transport):
         assert data_consumer is None or len(ending) == 1
         assert isinstance(timeout, (type(None), int, float))
         assert isinstance(timeout_overall, (type(None), int, float))
+        print(f"MPREMOTE:     read_until({ending=})")
 
         data = b""
         begin_overall_s = begin_char_s = time.monotonic()
@@ -144,9 +145,11 @@ class SerialTransport(Transport):
                 ):
                     break
                 time.sleep(0.01)
+        print(f"MPREMOTE:     read_until({ending=}) -> {data}")
         return data
 
     def enter_raw_repl(self, soft_reset=True, timeout_overall=10):
+        print("MPREMOTE:   enter_raw_repl()")
         self.serial.write(b"\r\x03")  # ctrl-C: interrupt any running program
 
         # flush input (without relying on serial.flushInput())
@@ -165,6 +168,7 @@ class SerialTransport(Transport):
                 print(data)
                 raise TransportError("could not enter raw repl")
 
+            print("MPREMOTE:   enter_raw_repl(): ctrl-D: soft reset")
             self.serial.write(b"\x04")  # ctrl-D: soft reset
 
             # Waiting for "soft reboot" independently to "raw REPL" (done below)
@@ -188,6 +192,7 @@ class SerialTransport(Transport):
 
     def follow(self, timeout, data_consumer=None):
         # wait for normal output
+        print("MPREMOTE:   follow()")
         data = self.read_until(1, b"\x04", timeout=timeout, data_consumer=data_consumer)
         if not data.endswith(b"\x04"):
             raise TransportError("timeout waiting for first EOF reception")
@@ -203,6 +208,7 @@ class SerialTransport(Transport):
         return data, data_err
 
     def raw_paste_write(self, command_bytes):
+        print("MPREMOTE:     raw_paste_write()")
         # Read initial header, with window size.
         data = self.serial.read(2)
         window_size = struct.unpack("<H", data)[0]
@@ -211,33 +217,41 @@ class SerialTransport(Transport):
         # Write out the command_bytes data.
         i = 0
         while i < len(command_bytes):
+            print(f"MPREMOTE:     raw_paste_write(): {window_size=} {window_remain=}")
             while window_remain == 0 or self.serial.inWaiting():
                 data = self.serial.read(1)
                 if data == b"\x01":
                     # Device indicated that a new window of data can be sent.
+                    print("MPREMOTE:     raw_paste_write(): Device indicated that a new window of data can be sent.")
                     window_remain += window_size
                 elif data == b"\x04":
                     # Device indicated abrupt end.  Acknowledge it and finish.
+                    print("MPREMOTE:     raw_paste_write(): Device indicated abrupt end.  Acknowledge it and finish.")
                     self.serial.write(b"\x04")
                     return
                 else:
                     # Unexpected data from device.
+                    print("MPREMOTE:     raw_paste_write(): Unexpected data from device.")
                     raise TransportError("unexpected read during raw paste: {}".format(data))
             # Send out as much data as possible that fits within the allowed window.
+            print("MPREMOTE:     raw_paste_write(): Send out as much data as possible that fits within the allowed window.")
             b = command_bytes[i : min(i + window_remain, len(command_bytes))]
             self.serial.write(b)
             window_remain -= len(b)
             i += len(b)
 
         # Indicate end of data.
+        print("MPREMOTE:     raw_paste_write(): Indicate end of data.")
         self.serial.write(b"\x04")
 
         # Wait for device to acknowledge end of data.
+        print("MPREMOTE:     raw_paste_write(): Wait for device to acknowledge end of data.")
         data = self.read_until(1, b"\x04")
         if not data.endswith(b"\x04"):
             raise TransportError("could not complete raw paste: {}".format(data))
 
     def exec_raw_no_follow(self, command):
+        print("MPREMOTE:   exec_raw_no_follow()")
         if isinstance(command, bytes):
             command_bytes = command
         else:
@@ -249,6 +263,7 @@ class SerialTransport(Transport):
             raise TransportError("could not enter raw repl")
 
         if self.use_raw_paste:
+            print("MPREMOTE:   exec_raw_no_follow(): use_raw_paste")
             # Try to enter raw-paste mode.
             self.serial.write(b"\x05A\x01")
             data = self.serial.read(2)

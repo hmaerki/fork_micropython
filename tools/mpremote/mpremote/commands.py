@@ -13,6 +13,27 @@ from .transport_serial import SerialTransport
 from .romfs import make_romfs, VfsRomWriter
 
 
+def mock_read_write(serial):
+    print("MPREMOTE: mock_read_write()")
+    assert serial.__class__.__name__ == "Serial", serial.__class__.__name__
+
+    write_original = serial.write
+    read_original = serial.read
+
+    def write_new(*args, **kwargs):
+        rc = write_original(*args, **kwargs)
+        print(f"    raw-write({args}, {kwargs}) -> {rc}")
+        return rc
+        
+    serial.write = write_new
+
+    def read_new(*args, **kwargs):
+        rc = read_original(*args, **kwargs)
+        print(f"    raw-read({args}, {kwargs}) -> {rc}")
+        return rc
+        
+    serial.read = read_new
+
 class CommandError(Exception):
     pass
 
@@ -43,6 +64,7 @@ def do_connect(state, args=None):
                 if p.vid is not None and p.pid is not None:
                     try:
                         state.transport = SerialTransport(p.device, baudrate=115200)
+                        mock_read_write(state.transport.serial)
                         return
                     except TransportError as er:
                         if not er.args[0].startswith("failed to access"):
@@ -480,12 +502,16 @@ def do_edit(state, args):
 
 
 def _do_execbuffer(state, buf, follow):
+    print("MPREMOTE: ensure_raw_repl()")
     state.ensure_raw_repl()
+    print("MPREMOTE: did_action()")
     state.did_action()
 
     try:
+        print("MPREMOTE: exec_raw_no_follow()")
         state.transport.exec_raw_no_follow(buf)
         if follow:
+            print("MPREMOTE: transport.follow()")
             ret, ret_err = state.transport.follow(timeout=None, data_consumer=stdout_write_bytes)
             if ret_err:
                 stdout_write_bytes(ret_err)
