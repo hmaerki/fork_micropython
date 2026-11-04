@@ -14,6 +14,7 @@ import ast
 import dataclasses
 import itertools
 import pathlib
+import re
 import types
 
 DIRECTORY_OF_THIS_FILE = pathlib.Path(__file__).parent
@@ -35,24 +36,23 @@ SYS_ATTRIBUTES = {
 
 # Constant strings found in the wiring files that are pin or peripheral
 # names, not board identifiers: pointless to try as sys attribute values,
-# so the permutations skip them.
-PIN_NAMES: list[str] = (
-    [
-        "LP1",
-        "P0_5",
-        "P17_0",
-        "P17_1",
-        "XA",
-        "alif",
-        "lpuart1",
-        "rx",
-        "tx",
-    ]
-    + [f"GPIO{x}" for x in range(32)]
-    + [f"D{x}" for x in range(32)]
-    + [f"X{x}" for x in range(32)]
-    + [f"P{x}_{y}" for x in range(5) for y in range(5)]
-)
+# so the permutations skip them. Each entry is a regular expression that
+# must match the whole string.
+PIN_NAMES: list[str] = [
+    r"GPIO\d+",
+    r"D\d+",
+    r"X[1-4]",
+    r"P\d+_\d+",
+    r"LP[1-4]",
+    r"X[A-D]",
+    r"lpuart[1-4]",
+    r"rx",
+    r"tx",
+]
+
+
+def is_pin_name(string: str) -> bool:
+    return any(re.fullmatch(pattern, string) for pattern in PIN_NAMES)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -182,7 +182,7 @@ class Wireing:
         strings = [
             string
             for string in self._extract_constant_strings(code)
-            if string not in PIN_NAMES
+            if not is_pin_name(string)
         ]
         attributes = list(SYS_ATTRIBUTES)
         # Permute every combination of attributes, smaller combinations
