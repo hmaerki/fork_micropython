@@ -60,16 +60,30 @@ def main():
             print()
             continue
         print_globals(filename.name, baseline)
+        # Group machine strings that yield identical globals.
+        groups = []  # list of (variables, [machines])
         for machine in extract_constant_strings(code):
             try:
                 variables = collect_globals(code, machine)
             except Exception:
                 continue
-            if variables != baseline:
-                print_globals(
-                    f'{filename.name} sys.implementation._machine="{machine}"',
-                    variables,
-                )
+            if variables == baseline:
+                continue
+            for group_variables, machines in groups:
+                if variables == group_variables:
+                    machines.append(machine)
+                    break
+            else:
+                groups.append((variables, [machine]))
+        for variables, machines in groups:
+            if len(machines) == 1:
+                condition = f'== "{machines[0]}"'
+            else:
+                condition = "in (" + ", ".join(f'"{m}"' for m in machines) + ")"
+            print_globals(
+                f"{filename.name} sys.implementation._machine {condition}",
+                variables,
+            )
 
 
 if __name__ == "__main__":
