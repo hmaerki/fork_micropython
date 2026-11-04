@@ -12,15 +12,15 @@
 import ast
 import dataclasses
 import pathlib
-import sys
 import types
 
 DIRECTORY_OF_THIS_FILE = pathlib.Path(__file__).parent
 TARGET_WIRING_DIR = DIRECTORY_OF_THIS_FILE / "target_wiring"
 
 # Some wiring files query sys.implementation._machine, which only exists
-# on MicroPython. The baseline run mocks it with a value that is clearly
-# marked, so conditional branches taken under the mock are recognizable.
+# on MicroPython. A fake sys is injected into their namespace; the baseline
+# run uses a value that is clearly marked, so conditional branches taken
+# under the mock are recognizable.
 MOCK_MACHINE = "<mock: sys.implementation._machine>"
 
 
@@ -132,13 +132,21 @@ class Wireing:
         """
         Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
         """
-        sys.implementation._machine = machine
-        namespace = {}
+        # The wiring files only use sys.implementation._machine. Comment out
+        # their 'import sys' and inject a fake instead, so the real sys
+        # module is never touched.
+        fake_sys = types.SimpleNamespace(
+            implementation=types.SimpleNamespace(_machine=machine)
+        )
+        code = code.replace("import sys", "# import sys")
+        namespace = {"sys": fake_sys}
         exec(code, namespace)
         return {
             name: value
             for name, value in namespace.items()
-            if not name.startswith("__") and not isinstance(value, types.ModuleType)
+            if not name.startswith("__")
+            and name != "sys"
+            and not isinstance(value, types.ModuleType)
         }
 
     @property
