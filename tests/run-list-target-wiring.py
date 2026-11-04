@@ -55,6 +55,26 @@ def is_pin_name(string: str) -> bool:
     return any(re.fullmatch(pattern, string) for pattern in PIN_NAMES)
 
 
+class FakePin:
+    """Placeholder for machine.Pin, recording the constructor arguments.
+
+    Implements __eq__ so that globals collected from different runs
+    compare equal when the Pin was constructed with the same arguments.
+    """
+
+    def __init__(self, *args):
+        self._args = args
+
+    def __repr__(self) -> str:
+        return "Pin(" + ", ".join(repr(arg) for arg in self._args) + ")"
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, FakePin) and self._args == other._args
+
+    def __hash__(self) -> int:
+        return hash(self._args)
+
+
 @dataclasses.dataclass(frozen=True)
 class Permutation:
     """The values of the faked sys attributes for one run of a wiring file."""
@@ -75,6 +95,47 @@ class Permutation:
             field.name: getattr(self, field.name)
             for field in dataclasses.fields(self)
             if getattr(self, field.name) != field.default
+        }
+
+    @property
+    def import_sys(self) -> types.SimpleNamespace:
+        """A fake sys module exposing this permutation's attribute values."""
+        return types.SimpleNamespace(
+            platform=self.platform,
+            implementation=types.SimpleNamespace(
+                _machine=self.machine,
+                _build=self.build,
+            ),
+        )
+
+    @property
+    def import_machine(self) -> types.SimpleNamespace:
+        """A fake machine module providing a Pin placeholder."""
+        return types.SimpleNamespace(Pin=FakePin)
+
+    def collect_globals(self, code: str) -> dict[str, object]:
+        """
+        Execute the wiring code under this permutation and return its globals.
+        Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
+        """
+        # The wiring files only use sys.platform, sys.implementation._machine,
+        # sys.implementation._build and machine.Pin. Comment out their imports
+        # and inject fakes instead, so the real modules are never touched.
+        code = code.replace("import sys", "# import sys")
+        code = code.replace("from machine import Pin", "# from machine import Pin")
+        namespace = {
+            "sys": self.import_sys,
+            "machine": self.import_machine,
+            "Pin": self.import_machine.Pin,
+        }
+        injected = set(namespace)
+        exec(code, namespace)
+        return {
+            name: value
+            for name, value in namespace.items()
+            if not name.startswith("__")
+            and name not in injected
+            and not isinstance(value, types.ModuleType)
         }
 
 
@@ -131,11 +192,11 @@ class Table:
         Example: ["pwm_loopback_pins", "uart_loopback_args"]
         """
         # The header cell of a column may span several lines ('or' of triples).
-        header_cells = [["feature (platform, machine, build)"]] + [
+        header_cells = [["feature"]] + [
             board_variant.title_lines for board_variant in self._board_variants
         ]
         """
-        Example: [["feature (platform, machine, build)"], ["-"], ['-, "ESP32-C", -', '-, "ESP32-H2", -']]
+        Example: [["feature"], ["-"], ['-, "ESP32-C", -', '-, "ESP32-H2", -']]
         """
         data_rows = []
         for name in names:
@@ -178,7 +239,7 @@ class Wireing:
 
     def __init__(self, filename: pathlib.Path) -> None:
         code = filename.read_text()
-        baseline = BoardVariant([], self._collect_globals(code))
+        baseline = BoardVariant([], Permutation().collect_globals(code))
         self.board_variants = [baseline]
         strings = [
             string
@@ -194,7 +255,7 @@ class Wireing:
                 for values in itertools.product(strings, repeat=size):
                     permutation = Permutation(**dict(zip(subset, values)))
                     try:
-                        connections = self._collect_globals(code, permutation)
+                        connections = permutation.collect_globals(code)
                     except Exception:
                         continue
                     if connections == baseline.connections:
@@ -227,34 +288,6 @@ class Wireing:
             }
         )
 
-    @staticmethod
-    def _collect_globals(
-        code: str, permutation: Permutation = Permutation()
-    ) -> dict[str, object]:
-        """
-        Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
-        """
-        # The wiring files only use sys.platform, sys.implementation._machine
-        # and sys.implementation._build. Comment out their 'import sys' and
-        # inject a fake instead, so the real sys module is never touched.
-        fake_sys = types.SimpleNamespace(
-            platform=permutation.platform,
-            implementation=types.SimpleNamespace(
-                _machine=permutation.machine,
-                _build=permutation.build,
-            ),
-        )
-        code = code.replace("import sys", "# import sys")
-        namespace = {"sys": fake_sys}
-        exec(code, namespace)
-        return {
-            name: value
-            for name, value in namespace.items()
-            if not name.startswith("__")
-            and name != "sys"
-            and not isinstance(value, types.ModuleType)
-        }
-
     @property
     def table(self) -> str:
         return Table(self.board_variants).render()
@@ -269,7 +302,7 @@ def main():
             print(f"  ERROR: {e!r}")
             print()
             continue
-        print(filename.name)
+        print(f"{filename.name}  Table column: platform, machine, build")
         print(wireing.table)
 
 
