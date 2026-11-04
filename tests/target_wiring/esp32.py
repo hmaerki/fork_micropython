@@ -26,17 +26,20 @@ else:
     encoder_loopback_in_pins = (5, 13)
 
 i2c_target_args = (0,)
-if sys.implementation._build == "ESP32_GENERIC_C5":
+if sys.implementation._build in ("ESP32_GENERIC_C2", "ESP32_GENERIC_H2"):
+    i2c_controller_kwargs = {"scl": 10, "sda": 12}
+    i2c_target_kwargs = {"scl": 11, "sda": 22}
+elif sys.implementation._build == "ESP32_GENERIC_C5":
     # ESP32-C5-DevKitC-1 v1.2: No pin 22!
     i2c_controller_kwargs = {"scl": 10, "sda": 12}
     i2c_target_kwargs = {"scl": 11, "sda": 24}
-if sys.implementation._build == "ESP32_GENERIC_C6":
+elif sys.implementation._build == "ESP32_GENERIC_C6":
     # ESP32-C6-DevKitC-1 v1.2: Pin 12,13 used by XTAL!  
     i2c_controller_kwargs = {"scl": 10, "sda": 22}
     i2c_target_kwargs = {"scl": 11, "sda": 23}
-elif sys.implementation._build in ("ESP32_GENERIC_H2", "ESP32_GENERIC_C2", "ESP32_GENERIC_S2"):
+elif sys.implementation._build in ("ESP32_GENERIC_S2"):
     i2c_controller_kwargs = {"scl": 10, "sda": 12}
-    i2c_target_kwargs = {"scl": 11, "sda": 22}
+    i2c_target_kwargs = {"scl": 11, "sda": 13}
 else:
     i2c_controller_kwargs = {"scl": 5, "sda": 6}
     i2c_target_kwargs = {"scl": 9, "sda": 8}
