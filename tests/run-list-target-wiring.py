@@ -5,33 +5,48 @@
 # to stdout, rows in alphabetical order.
 #
 # Additionally, all constant strings in each file (extracted via ast) are
-# used as permutations of sys.implementation._machine. Permutations whose
-# globals differ from the baseline get an extra column in the table,
-# grouped when several machine strings yield identical globals.
+# used as permutations of sys.platform, sys.implementation._machine and
+# sys.implementation._build, including combinations of these attributes.
+# Permutations whose globals differ from the baseline get an extra column
+# in the table, grouped when several permutations yield identical globals.
 
 import ast
 import dataclasses
+import itertools
 import pathlib
 import types
 
 DIRECTORY_OF_THIS_FILE = pathlib.Path(__file__).parent
 TARGET_WIRING_DIR = DIRECTORY_OF_THIS_FILE / "target_wiring"
 
-# Some wiring files query sys.implementation._machine, which only exists
-# on MicroPython. A fake sys is injected into their namespace; the baseline
-# run uses a value that is clearly marked, so conditional branches taken
-# under the mock are recognizable.
+# Some wiring files query sys.platform, sys.implementation._machine and
+# sys.implementation._build; the last two only exist on MicroPython. A fake
+# sys is injected into their namespace; the baseline run uses values that
+# are clearly marked, so conditional branches taken under the mock are
+# recognizable.
 MOCK_MACHINE = "<mock: sys.implementation._machine>"
+MOCK_BUILD = "<mock: sys.implementation._build>"
+MOCK_PLATFORM = "<mock: sys.platform>"
+
+# The faked sys attributes to permute: maps the keyword argument of
+# Wireing._collect_globals to the expression shown in column titles.
+SYS_ATTRIBUTES = {
+    "platform": "sys.platform",
+    "machine": "sys.implementation._machine",
+    "build": "sys.implementation._build",
+}
 
 
 @dataclasses.dataclass(frozen=True)
 class BoardVariant:
-    """The globals of one wiring file for a set of machine strings."""
+    """The globals of one wiring file for a set of sys attribute values."""
 
-    machines: list[str]
+    matches: list[dict[str, str]]
     """
+    Each match is one permutation (attribute -> value) that produced these globals.
     Example: [] for the baseline
-    Example: ["ESP32-C", "ESP32-H2"]
+    Example: [{"machine": "ESP32-C"}, {"machine": "ESP32-H2"}]
+    Example: [{"platform": "alif", "build": "ALIF_ENSEMBLE"}]
     """
 
     connections: dict[str, object]
@@ -43,15 +58,38 @@ class BoardVariant:
     def title(self) -> str:
         """
         Example: '-' for the baseline
-        Example: 'sys.implementation._machine == "Teensy"'
         Example: 'sys.implementation._machine in ("ESP32-C", "ESP32-H2")'
+        Example: 'sys.platform == "alif" and sys.implementation._build == "ALIF_ENSEMBLE"'
         """
-        if not self.machines:
+        if not self.matches:
             return "-"
-        if len(self.machines) == 1:
-            return f'sys.implementation._machine == "{self.machines[0]}"'
-        quoted = ", ".join(f'"{m}"' for m in self.machines)
-        return f"sys.implementation._machine in ({quoted})"
+        parts = []
+        # Combine single-attribute matches per attribute: == or in (...).
+        for attribute, expression in SYS_ATTRIBUTES.items():
+            values = [
+                match[attribute]
+                for match in self.matches
+                if len(match) == 1 and attribute in match
+            ]
+            if not values:
+                continue
+            if len(values) == 1:
+                parts.append(f'{expression} == "{values[0]}"')
+            else:
+                quoted = ", ".join(f'"{v}"' for v in values)
+                parts.append(f"{expression} in ({quoted})")
+        # Multi-attribute matches become 'a == x and b == y' conjunctions.
+        conjunctions = [
+            " and ".join(
+                f'{SYS_ATTRIBUTES[attribute]} == "{value}"'
+                for attribute, value in match.items()
+            )
+            for match in self.matches
+            if len(match) > 1
+        ]
+        if len(parts) + len(conjunctions) > 1:
+            conjunctions = [f"({c})" for c in conjunctions]
+        return " or ".join(parts + conjunctions)
 
 
 class Table:
@@ -94,25 +132,39 @@ class Table:
 
 
 class Wireing:
-    """Executes a wiring file under machine permutations and groups the results."""
+    """Executes a wiring file under sys attribute permutations and groups the results."""
 
     def __init__(self, filename: pathlib.Path) -> None:
         code = filename.read_text()
-        baseline = BoardVariant([], self._collect_globals(code, MOCK_MACHINE))
+        baseline = BoardVariant([], self._collect_globals(code))
         self.board_variants = [baseline]
-        for machine in self._extract_constant_strings(code):
-            try:
-                connections = self._collect_globals(code, machine)
-            except Exception:
-                continue
-            if connections == baseline.connections:
-                continue
-            for board_variant in self.board_variants[1:]:
-                if connections == board_variant.connections:
-                    board_variant.machines.append(machine)
-                    break
-            else:
-                self.board_variants.append(BoardVariant([machine], connections))
+        strings = self._extract_constant_strings(code)
+        # Permute every combination of attributes, smaller combinations
+        # first, so a combination is skipped when a smaller assignment
+        # already explains the same globals.
+        for size in range(1, len(SYS_ATTRIBUTES) + 1):
+            for subset in itertools.combinations(SYS_ATTRIBUTES, size):
+                for values in itertools.product(strings, repeat=size):
+                    match = dict(zip(subset, values))
+                    try:
+                        connections = self._collect_globals(code, **match)
+                    except Exception:
+                        continue
+                    if connections == baseline.connections:
+                        continue
+                    for board_variant in self.board_variants[1:]:
+                        if connections == board_variant.connections:
+                            dominated = any(
+                                existing.items() <= match.items()
+                                for existing in board_variant.matches
+                            )
+                            if not dominated:
+                                board_variant.matches.append(match)
+                            break
+                    else:
+                        self.board_variants.append(
+                            BoardVariant([match], connections)
+                        )
 
     @staticmethod
     def _extract_constant_strings(code: str) -> list[str]:
@@ -128,15 +180,24 @@ class Wireing:
         )
 
     @staticmethod
-    def _collect_globals(code: str, machine: str) -> dict[str, object]:
+    def _collect_globals(
+        code: str,
+        platform: str = MOCK_PLATFORM,
+        machine: str = MOCK_MACHINE,
+        build: str = MOCK_BUILD,
+    ) -> dict[str, object]:
         """
         Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
         """
-        # The wiring files only use sys.implementation._machine. Comment out
-        # their 'import sys' and inject a fake instead, so the real sys
-        # module is never touched.
+        # The wiring files only use sys.platform, sys.implementation._machine
+        # and sys.implementation._build. Comment out their 'import sys' and
+        # inject a fake instead, so the real sys module is never touched.
         fake_sys = types.SimpleNamespace(
-            implementation=types.SimpleNamespace(_machine=machine)
+            platform=platform,
+            implementation=types.SimpleNamespace(
+                _machine=machine,
+                _build=build,
+            ),
         )
         code = code.replace("import sys", "# import sys")
         namespace = {"sys": fake_sys}
