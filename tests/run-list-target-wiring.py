@@ -96,41 +96,25 @@ class BoardVariant:
     """
 
     @property
-    def title(self) -> str:
+    def title_lines(self) -> list[str]:
         """
-        Example: '-' for the baseline
-        Example: 'sys.implementation._machine in ("ESP32-C", "ESP32-H2")'
-        Example: 'sys.platform == "alif" and sys.implementation._build == "ALIF_ENSEMBLE"'
+        One line per match, each line the triple platform, machine, build
+        with '-' for mocked attributes. Multiple lines mean 'or'.
+        Example: ['-'] for the baseline
+        Example: ['-, "ESP32-C", -', '-, "ESP32-H2", -']
+        Example: ['"alif", -, "ALIF_ENSEMBLE"']
         """
         if not self.matches:
-            return "-"
-        parts = []
-        # Combine single-attribute matches per attribute: == or in (...).
-        for attribute, expression in SYS_ATTRIBUTES.items():
-            values = [
-                match.overrides[attribute]
-                for match in self.matches
-                if list(match.overrides) == [attribute]
-            ]
-            if not values:
-                continue
-            if len(values) == 1:
-                parts.append(f'{expression} == "{values[0]}"')
-            else:
-                quoted = ", ".join(f'"{v}"' for v in values)
-                parts.append(f"{expression} in ({quoted})")
-        # Multi-attribute matches become 'a == x and b == y' conjunctions.
-        conjunctions = [
-            " and ".join(
-                f'{SYS_ATTRIBUTES[attribute]} == "{value}"'
-                for attribute, value in match.overrides.items()
+            return ["-"]
+        return [
+            ", ".join(
+                f'"{match.overrides[attribute]}"'
+                if attribute in match.overrides
+                else "-"
+                for attribute in SYS_ATTRIBUTES
             )
             for match in self.matches
-            if len(match.overrides) > 1
         ]
-        if len(parts) + len(conjunctions) > 1:
-            conjunctions = [f"({c})" for c in conjunctions]
-        return " or ".join(parts + conjunctions)
 
 
 class Table:
@@ -146,13 +130,16 @@ class Table:
         """
         Example: ["pwm_loopback_pins", "uart_loopback_args"]
         """
-        header = ["feature"] + [board_variant.title for board_variant in self._board_variants]
+        # The header cell of a column may span several lines ('or' of triples).
+        header_cells = [["feature (platform, machine, build)"]] + [
+            board_variant.title_lines for board_variant in self._board_variants
+        ]
         """
-        Example: ["feature", "-", 'sys.implementation._machine in ("ESP32-C", "ESP32-H2")']
+        Example: [["feature (platform, machine, build)"], ["-"], ['-, "ESP32-C", -', '-, "ESP32-H2", -']]
         """
-        rows = [header]
+        data_rows = []
         for name in names:
-            rows.append(
+            data_rows.append(
                 [name]
                 + [
                     repr(board_variant.connections[name]) if name in board_variant.connections else ""
@@ -162,8 +149,22 @@ class Table:
             """
             Example appended row: ["spi_standalone_args_list", "[(1,), (2,)]", "[(1,)]"]
             """
-        widths = [max(len(row[col]) for row in rows) for col in range(len(header))]
-        rows.insert(1, ["-" * width for width in widths])
+        widths = [
+            max(
+                max(len(line) for line in header_cells[col]),
+                max((len(row[col]) for row in data_rows), default=0),
+            )
+            for col in range(len(header_cells))
+        ]
+        rows = [
+            [
+                cell[line_index] if line_index < len(cell) else ""
+                for cell in header_cells
+            ]
+            for line_index in range(max(len(cell) for cell in header_cells))
+        ]
+        rows.append(["-" * width for width in widths])
+        rows.extend(data_rows)
         return "".join(
             "| "
             + " | ".join(cell.ljust(width) for cell, width in zip(row, widths))
