@@ -40,6 +40,10 @@ elif sys.implementation._build == "ESP32_GENERIC_C6":
 elif sys.implementation._build in ("ESP32_GENERIC_S2"):
     i2c_controller_kwargs = {"scl": 10, "sda": 12}
     i2c_target_kwargs = {"scl": 11, "sda": 13}
+elif sys.implementation._build in ("ESP32_GENERIC"):
+    # Tests are currently skipped as 'import SoftI2C, I2CTarget' fails
+    i2c_controller_kwargs = {"scl": 34, "sda": 12}
+    i2c_target_kwargs = {"scl": 35, "sda": 13}
 else:
     i2c_controller_kwargs = {"scl": 5, "sda": 6}
     i2c_target_kwargs = {"scl": 9, "sda": 8}
