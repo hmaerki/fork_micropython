@@ -37,7 +37,7 @@ elif sys.implementation._build == "ESP32_GENERIC_C6":
     # ESP32-C6-DevKitC-1 v1.2: Pin 12,13 used by XTAL!  
     i2c_controller_kwargs = {"scl": 10, "sda": 22}
     i2c_target_kwargs = {"scl": 11, "sda": 23}
-elif sys.implementation._build in ("ESP32_GENERIC_S2"):
+elif sys.implementation._build in ("ESP32_GENERIC_S2", "ESP32_GENERIC_S3"):
     i2c_controller_kwargs = {"scl": 10, "sda": 12}
     i2c_target_kwargs = {"scl": 11, "sda": 13}
 elif sys.implementation._build in ("ESP32_GENERIC"):
