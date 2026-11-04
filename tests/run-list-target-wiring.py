@@ -24,23 +24,23 @@ TARGET_WIRING_DIR = DIRECTORY_OF_THIS_FILE / "target_wiring"
 MOCK_MACHINE = "<mock: sys.implementation._machine>"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BoardVariant:
     """The globals of one wiring file for a set of machine strings."""
 
-    machines: list
+    machines: list[str]
     """
     Example: [] for the baseline
     Example: ["ESP32-C", "ESP32-H2"]
     """
 
-    connections: dict
+    connections: dict[str, object]
     """
     Example: {"uart_loopback_args": (1,), "uart_loopback_kwargs": {"tx": 4, "rx": 5}}
     """
 
     @property
-    def title(self):
+    def title(self) -> str:
         """
         Example: '-' for the baseline
         Example: 'sys.implementation._machine == "Teensy"'
@@ -57,10 +57,10 @@ class BoardVariant:
 class Table:
     """Renders a padded markdown table from column titles and row dicts."""
 
-    def __init__(self, board_variants):
+    def __init__(self, board_variants: list[BoardVariant]) -> None:
         self._board_variants = board_variants
 
-    def __str__(self):
+    def render(self) -> str:
         names = sorted(
             {name for board_variant in self._board_variants for name in board_variant.connections}
         )
@@ -96,7 +96,7 @@ class Table:
 class Wireing:
     """Executes a wiring file under machine permutations and groups the results."""
 
-    def __init__(self, filename):
+    def __init__(self, filename: pathlib.Path) -> None:
         code = filename.read_text()
         baseline = BoardVariant([], self._collect_globals(code, MOCK_MACHINE))
         self.board_variants = [baseline]
@@ -115,7 +115,7 @@ class Wireing:
                 self.board_variants.append(BoardVariant([machine], connections))
 
     @staticmethod
-    def _extract_constant_strings(code):
+    def _extract_constant_strings(code: str) -> list[str]:
         """
         Example return value: ["ESP32-C", "ESP32-H2", "rx", "tx"]
         """
@@ -128,7 +128,7 @@ class Wireing:
         )
 
     @staticmethod
-    def _collect_globals(code, machine):
+    def _collect_globals(code: str, machine: str) -> dict[str, object]:
         """
         Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
         """
@@ -142,8 +142,8 @@ class Wireing:
         }
 
     @property
-    def table(self):
-        return str(Table(self.board_variants))
+    def table(self) -> str:
+        return Table(self.board_variants).render()
 
 
 def main():
