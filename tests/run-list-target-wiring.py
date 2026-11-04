@@ -10,6 +10,7 @@
 # grouped when several machine strings yield identical globals.
 
 import ast
+import dataclasses
 import pathlib
 import sys
 import types
@@ -23,23 +24,101 @@ TARGET_WIRING_DIR = DIRECTORY_OF_THIS_FILE / "target_wiring"
 MOCK_MACHINE = "<mock: sys.implementation._machine>"
 
 
+@dataclasses.dataclass
+class BoardVariant:
+    """The globals of one wiring file for a set of machine strings."""
+
+    machines: list
+    """
+    Example: [] for the baseline
+    Example: ["ESP32-C", "ESP32-H2"]
+    """
+
+    connections: dict
+    """
+    Example: {"uart_loopback_args": (1,), "uart_loopback_kwargs": {"tx": 4, "rx": 5}}
+    """
+
+    @property
+    def title(self):
+        """
+        Example: '-' for the baseline
+        Example: 'sys.implementation._machine == "Teensy"'
+        Example: 'sys.implementation._machine in ("ESP32-C", "ESP32-H2")'
+        """
+        if not self.machines:
+            return "-"
+        if len(self.machines) == 1:
+            return f'sys.implementation._machine == "{self.machines[0]}"'
+        quoted = ", ".join(f'"{m}"' for m in self.machines)
+        return f"sys.implementation._machine in ({quoted})"
+
+
+class Table:
+    """Renders a padded markdown table from column titles and row dicts."""
+
+    def __init__(self, board_variants):
+        self._board_variants = board_variants
+
+    def __str__(self):
+        names = sorted(
+            {name for board_variant in self._board_variants for name in board_variant.connections}
+        )
+        """
+        Example: ["pwm_loopback_pins", "uart_loopback_args"]
+        """
+        header = ["feature"] + [board_variant.title for board_variant in self._board_variants]
+        """
+        Example: ["feature", "-", 'sys.implementation._machine in ("ESP32-C", "ESP32-H2")']
+        """
+        rows = [header]
+        for name in names:
+            rows.append(
+                [name]
+                + [
+                    repr(board_variant.connections[name]) if name in board_variant.connections else ""
+                    for board_variant in self._board_variants
+                ]
+            )
+            """
+            Example appended row: ["spi_standalone_args_list", "[(1,), (2,)]", "[(1,)]"]
+            """
+        widths = [max(len(row[col]) for row in rows) for col in range(len(header))]
+        rows.insert(1, ["-" * width for width in widths])
+        return "".join(
+            "| "
+            + " | ".join(cell.ljust(width) for cell, width in zip(row, widths))
+            + " |\n"
+            for row in rows
+        )
+
+
 class Wireing:
+    """Executes a wiring file under machine permutations and groups the results."""
+
     def __init__(self, filename):
         code = filename.read_text()
-        baseline = self._collect_globals(code, MOCK_MACHINE)
-        # variants: list of (title, variables), baseline first.
-        self._variants = [("-", baseline)]
-        for variables, machines in self._collect_groups(code, baseline):
-            if len(machines) == 1:
-                condition = f'== "{machines[0]}"'
+        baseline = BoardVariant([], self._collect_globals(code, MOCK_MACHINE))
+        self.board_variants = [baseline]
+        for machine in self._extract_constant_strings(code):
+            try:
+                connections = self._collect_globals(code, machine)
+            except Exception:
+                continue
+            if connections == baseline.connections:
+                continue
+            for board_variant in self.board_variants[1:]:
+                if connections == board_variant.connections:
+                    board_variant.machines.append(machine)
+                    break
             else:
-                condition = "in (" + ", ".join(f'"{m}"' for m in machines) + ")"
-            self._variants.append(
-                (f"sys.implementation._machine {condition}", variables)
-            )
+                self.board_variants.append(BoardVariant([machine], connections))
 
     @staticmethod
     def _extract_constant_strings(code):
+        """
+        Example return value: ["ESP32-C", "ESP32-H2", "rx", "tx"]
+        """
         return sorted(
             {
                 node.value
@@ -50,6 +129,9 @@ class Wireing:
 
     @staticmethod
     def _collect_globals(code, machine):
+        """
+        Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
+        """
         sys.implementation._machine = machine
         namespace = {}
         exec(code, namespace)
@@ -59,47 +141,9 @@ class Wireing:
             if not name.startswith("__") and not isinstance(value, types.ModuleType)
         }
 
-    def _collect_groups(self, code, baseline):
-        # Group machine strings that yield identical globals.
-        groups = []  # list of (variables, [machines])
-        for machine in self._extract_constant_strings(code):
-            try:
-                variables = self._collect_globals(code, machine)
-            except Exception:
-                continue
-            if variables == baseline:
-                continue
-            for group_variables, machines in groups:
-                if variables == group_variables:
-                    machines.append(machine)
-                    break
-            else:
-                groups.append((variables, [machine]))
-        return groups
-
     @property
     def table(self):
-        names = sorted(
-            {name for _, variables in self._variants for name in variables}
-        )
-        header = ["feature"] + [title for title, _ in self._variants]
-        rows = [header]
-        for name in names:
-            rows.append(
-                [name]
-                + [
-                    repr(variables[name]) if name in variables else ""
-                    for _, variables in self._variants
-                ]
-            )
-        widths = [max(len(row[col]) for row in rows) for col in range(len(header))]
-        rows.insert(1, ["-" * width for width in widths])
-        return "".join(
-            "| "
-            + " | ".join(cell.ljust(width) for cell, width in zip(row, widths))
-            + " |\n"
-            for row in rows
-        )
+        return str(Table(self.board_variants))
 
 
 def main():
