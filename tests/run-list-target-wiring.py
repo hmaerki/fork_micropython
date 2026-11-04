@@ -55,26 +55,6 @@ def is_pin_name(string: str) -> bool:
     return any(re.fullmatch(pattern, string) for pattern in PIN_NAMES)
 
 
-class FakePin:
-    """Placeholder for machine.Pin, recording the constructor arguments.
-
-    Implements __eq__ so that globals collected from different runs
-    compare equal when the Pin was constructed with the same arguments.
-    """
-
-    def __init__(self, *args):
-        self._args = args
-
-    def __repr__(self) -> str:
-        return "Pin(" + ", ".join(repr(arg) for arg in self._args) + ")"
-
-    def __eq__(self, other) -> bool:
-        return isinstance(other, FakePin) and self._args == other._args
-
-    def __hash__(self) -> int:
-        return hash(self._args)
-
-
 @dataclasses.dataclass(frozen=True)
 class Permutation:
     """The values of the faked sys attributes for one run of a wiring file."""
@@ -108,11 +88,6 @@ class Permutation:
             ),
         )
 
-    @property
-    def import_machine(self) -> types.SimpleNamespace:
-        """A fake machine module providing a Pin placeholder."""
-        return types.SimpleNamespace(Pin=FakePin)
-
     def collect_globals(self, code: str) -> dict[str, object]:
         """
         Execute the wiring code under this permutation and return its globals.
@@ -121,12 +96,12 @@ class Permutation:
         # The wiring files only use sys.platform, sys.implementation._machine,
         # sys.implementation._build and machine.Pin. Comment out their imports
         # and inject fakes instead, so the real modules are never touched.
+        # The fake Pin returns a tuple: comparable and printable for free.
         code = code.replace("import sys", "# import sys")
         code = code.replace("from machine import Pin", "# from machine import Pin")
         namespace = {
             "sys": self.import_sys,
-            "machine": self.import_machine,
-            "Pin": self.import_machine.Pin,
+            "Pin": lambda *args: ("Pin",) + args,
         }
         injected = set(namespace)
         exec(code, namespace)
