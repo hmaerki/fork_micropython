@@ -94,11 +94,12 @@ class Permutation:
         Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
         """
         # The wiring files only use sys.platform, sys.implementation._machine,
-        # sys.implementation._build and machine.Pin. Comment out their imports
-        # and inject fakes instead, so the real modules are never touched.
+        # sys.implementation._build and machine.Pin. Comment out all import
+        # lines and inject fakes instead, so the real modules are never touched.
         # The fake Pin returns a tuple: comparable and printable for free.
-        code = code.replace("import sys", "# import sys")
-        code = code.replace("from machine import Pin", "# from machine import Pin")
+        code = "\n".join(
+            f"# {line}" if "import" in line else line for line in code.splitlines()
+        )
         namespace = {
             "sys": self.import_sys,
             "Pin": lambda *args: ("Pin",) + args,
