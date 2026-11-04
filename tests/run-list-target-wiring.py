@@ -42,10 +42,24 @@ def collect_globals(code, machine):
     }
 
 
-def print_globals(title, variables):
-    print(f"{title}:")
-    for name in sorted(variables):
-        print(f"  {name} = {variables[name]!r}")
+def print_table(filename, variants):
+    # variants: list of (title, variables), baseline first.
+    print(filename)
+    names = sorted({name for _, variables in variants for name in variables})
+    header = ["feature"] + [title for title, _ in variants]
+    rows = [header]
+    for name in names:
+        rows.append(
+            [name]
+            + [
+                repr(variables[name]) if name in variables else ""
+                for _, variables in variants
+            ]
+        )
+    widths = [max(len(row[col]) for row in rows) for col in range(len(header))]
+    rows.insert(1, ["-" * width for width in widths])
+    for row in rows:
+        print("| " + " | ".join(cell.ljust(width) for cell, width in zip(row, widths)) + " |")
     print()
 
 
@@ -59,7 +73,6 @@ def main():
             print(f"  ERROR: {e!r}")
             print()
             continue
-        print_globals(filename.name, baseline)
         # Group machine strings that yield identical globals.
         groups = []  # list of (variables, [machines])
         for machine in extract_constant_strings(code):
@@ -75,15 +88,16 @@ def main():
                     break
             else:
                 groups.append((variables, [machine]))
+        variants = [("-", baseline)]
         for variables, machines in groups:
             if len(machines) == 1:
                 condition = f'== "{machines[0]}"'
             else:
                 condition = "in (" + ", ".join(f'"{m}"' for m in machines) + ")"
-            print_globals(
-                f"{filename.name} sys.implementation._machine {condition}",
-                variables,
+            variants.append(
+                (f"sys.implementation._machine {condition}", variables)
             )
+        print_table(filename.name, variants)
 
 
 if __name__ == "__main__":
