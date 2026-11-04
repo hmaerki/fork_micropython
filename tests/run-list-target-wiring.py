@@ -24,12 +24,9 @@ TARGET_WIRING_DIR = DIRECTORY_OF_THIS_FILE / "target_wiring"
 # sys is injected into their namespace; the baseline run uses values that
 # are clearly marked, so conditional branches taken under the mock are
 # recognizable.
-MOCK_MACHINE = "<mock: sys.implementation._machine>"
-MOCK_BUILD = "<mock: sys.implementation._build>"
-MOCK_PLATFORM = "<mock: sys.platform>"
 
-# The faked sys attributes to permute: maps the keyword argument of
-# Wireing._collect_globals to the expression shown in column titles.
+# The faked sys attributes to permute: maps the field name of Permutation
+# to the expression shown in column titles.
 SYS_ATTRIBUTES = {
     "platform": "sys.platform",
     "machine": "sys.implementation._machine",
@@ -38,15 +35,38 @@ SYS_ATTRIBUTES = {
 
 
 @dataclasses.dataclass(frozen=True)
+class Permutation:
+    """The values of the faked sys attributes for one run of a wiring file."""
+
+    platform: str = "<mock: sys.platform>"
+    machine: str = "<mock: sys.implementation._machine>"
+    build: str = "<mock: sys.implementation._build>"
+
+    @property
+    def overrides(self) -> dict[str, str]:
+        """
+        The attributes that differ from the mocked baseline.
+        Example: {} for the baseline
+        Example: {"machine": "ESP32-C"}
+        Example: {"platform": "alif", "build": "ALIF_ENSEMBLE"}
+        """
+        return {
+            field.name: getattr(self, field.name)
+            for field in dataclasses.fields(self)
+            if getattr(self, field.name) != field.default
+        }
+
+
+@dataclasses.dataclass(frozen=True)
 class BoardVariant:
     """The globals of one wiring file for a set of sys attribute values."""
 
-    matches: list[dict[str, str]]
+    matches: list[Permutation]
     """
-    Each match is one permutation (attribute -> value) that produced these globals.
+    The permutations that produced these globals.
     Example: [] for the baseline
-    Example: [{"machine": "ESP32-C"}, {"machine": "ESP32-H2"}]
-    Example: [{"platform": "alif", "build": "ALIF_ENSEMBLE"}]
+    Example: [Permutation(machine="ESP32-C"), Permutation(machine="ESP32-H2")]
+    Example: [Permutation(platform="alif", build="ALIF_ENSEMBLE")]
     """
 
     connections: dict[str, object]
@@ -67,9 +87,9 @@ class BoardVariant:
         # Combine single-attribute matches per attribute: == or in (...).
         for attribute, expression in SYS_ATTRIBUTES.items():
             values = [
-                match[attribute]
+                match.overrides[attribute]
                 for match in self.matches
-                if len(match) == 1 and attribute in match
+                if list(match.overrides) == [attribute]
             ]
             if not values:
                 continue
@@ -82,10 +102,10 @@ class BoardVariant:
         conjunctions = [
             " and ".join(
                 f'{SYS_ATTRIBUTES[attribute]} == "{value}"'
-                for attribute, value in match.items()
+                for attribute, value in match.overrides.items()
             )
             for match in self.matches
-            if len(match) > 1
+            if len(match.overrides) > 1
         ]
         if len(parts) + len(conjunctions) > 1:
             conjunctions = [f"({c})" for c in conjunctions]
@@ -139,15 +159,16 @@ class Wireing:
         baseline = BoardVariant([], self._collect_globals(code))
         self.board_variants = [baseline]
         strings = self._extract_constant_strings(code)
+        attributes = list(SYS_ATTRIBUTES)
         # Permute every combination of attributes, smaller combinations
         # first, so a combination is skipped when a smaller assignment
         # already explains the same globals.
-        for size in range(1, len(SYS_ATTRIBUTES) + 1):
-            for subset in itertools.combinations(SYS_ATTRIBUTES, size):
+        for size in range(1, len(attributes) + 1):
+            for subset in itertools.combinations(attributes, size):
                 for values in itertools.product(strings, repeat=size):
-                    match = dict(zip(subset, values))
+                    permutation = Permutation(**dict(zip(subset, values)))
                     try:
-                        connections = self._collect_globals(code, **match)
+                        connections = self._collect_globals(code, permutation)
                     except Exception:
                         continue
                     if connections == baseline.connections:
@@ -155,15 +176,16 @@ class Wireing:
                     for board_variant in self.board_variants[1:]:
                         if connections == board_variant.connections:
                             dominated = any(
-                                existing.items() <= match.items()
+                                existing.overrides.items()
+                                <= permutation.overrides.items()
                                 for existing in board_variant.matches
                             )
                             if not dominated:
-                                board_variant.matches.append(match)
+                                board_variant.matches.append(permutation)
                             break
                     else:
                         self.board_variants.append(
-                            BoardVariant([match], connections)
+                            BoardVariant([permutation], connections)
                         )
 
     @staticmethod
@@ -181,10 +203,7 @@ class Wireing:
 
     @staticmethod
     def _collect_globals(
-        code: str,
-        platform: str = MOCK_PLATFORM,
-        machine: str = MOCK_MACHINE,
-        build: str = MOCK_BUILD,
+        code: str, permutation: Permutation = Permutation()
     ) -> dict[str, object]:
         """
         Example return value: {"encoder_loopback_id": 0, "pwm_loopback_pins": [(4, 5)]}
@@ -193,10 +212,10 @@ class Wireing:
         # and sys.implementation._build. Comment out their 'import sys' and
         # inject a fake instead, so the real sys module is never touched.
         fake_sys = types.SimpleNamespace(
-            platform=platform,
+            platform=permutation.platform,
             implementation=types.SimpleNamespace(
-                _machine=machine,
-                _build=build,
+                _machine=permutation.machine,
+                _build=permutation.build,
             ),
         )
         code = code.replace("import sys", "# import sys")
