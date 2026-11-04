@@ -33,6 +33,27 @@ SYS_ATTRIBUTES = {
     "build": "sys.implementation._build",
 }
 
+# Constant strings found in the wiring files that are pin or peripheral
+# names, not board identifiers: pointless to try as sys attribute values,
+# so the permutations skip them.
+PIN_NAMES: list[str] = (
+    [
+        "LP1",
+        "P0_5",
+        "P17_0",
+        "P17_1",
+        "XA",
+        "alif",
+        "lpuart1",
+        "rx",
+        "tx",
+    ]
+    + [f"GPIO{x}" for x in range(32)]
+    + [f"D{x}" for x in range(32)]
+    + [f"X{x}" for x in range(32)]
+    + [f"P{x}_{y}" for x in range(5) for y in range(5)]
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class Permutation:
@@ -158,7 +179,11 @@ class Wireing:
         code = filename.read_text()
         baseline = BoardVariant([], self._collect_globals(code))
         self.board_variants = [baseline]
-        strings = self._extract_constant_strings(code)
+        strings = [
+            string
+            for string in self._extract_constant_strings(code)
+            if string not in PIN_NAMES
+        ]
         attributes = list(SYS_ATTRIBUTES)
         # Permute every combination of attributes, smaller combinations
         # first, so a combination is skipped when a smaller assignment
