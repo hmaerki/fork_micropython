@@ -4,6 +4,7 @@
 # wired to a hardware I2C target.  See pin definitions below.
 #
 # requires: slice
+# requires: target-wiring
 
 import sys
 
@@ -17,59 +18,20 @@ import unittest
 
 ADDR = 67
 
-i2c_kwargs_target = {}
-
-# Configure pins based on the target.
-if sys.platform == "alif" and sys.implementation._build == "ALIF_ENSEMBLE":
-    i2c_kwargs_controller = {"scl": "P1_1", "sda": "P1_0"}
-    i2c_args_target = (0,)  # on pins P0_3/P0_2
-elif sys.platform == "esp32":
-    i2c_kwargs_controller = {"scl": 5, "sda": 6}
-    i2c_args_target = (0,)  # on pins 9/8 for C3 and S3, 18/19 for others
-    i2c_kwargs_target = {"scl": 9, "sda": 8}
-elif sys.platform == "rp2":
-    i2c_kwargs_controller = {"scl": 5, "sda": 4}
-    i2c_args_target = (1,)
-elif sys.platform == "pyboard":
-    if sys.implementation._build == "NUCLEO_WB55":
-        i2c_kwargs_controller = {"scl": "B8", "sda": "B9"}
-        i2c_args_target = (3,)
-    else:
-        i2c_kwargs_controller = {"scl": "X1", "sda": "X2"}
-        i2c_args_target = ("X",)
-elif "zephyr-nucleo_wb55rg" in sys.implementation._machine:
-    # PB8=I2C1_SCL, PB9=I2C1_SDA (on Arduino header D15/D14)
-    # PC0=I2C3_SCL, PC1=I2C3_SDA (on Arduino header A0/A1)
-    i2c_kwargs_controller = {"scl": Pin(("gpiob", 8)), "sda": Pin(("gpiob", 9))}
-    i2c_args_target = ("i2c3",)
-elif "zephyr-rpi_pico" in sys.implementation._machine:
-    i2c_kwargs_controller = {"scl": Pin(("gpio0", 5)), "sda": Pin(("gpio0", 4))}
-    i2c_args_target = ("i2c1",)  # on gpio7/gpio6
-elif sys.platform == "mimxrt":
-    if "Teensy" in sys.implementation._machine:
-        i2c_kwargs_controller = {"scl": "A6", "sda": "A3"}  # D20/D17
-    else:
-        i2c_kwargs_controller = {"scl": "D0", "sda": "D1"}
-    i2c_args_target = (0,)  # pins 19/18 On Teensy 4.x
-elif sys.platform == "samd":
-    i2c_kwargs_controller = {"scl": "D5", "sda": "D1"}
-    i2c_args_target = ()
-else:
-    print("Please add support for this test on this platform.")
-    raise SystemExit
+from target_wiring import i2c_controller_kwargs, i2c_target_args, i2c_target_kwargs
 
 
 def config_pull_up():
-    Pin(i2c_kwargs_controller["scl"], Pin.OPEN_DRAIN, Pin.PULL_UP)
-    Pin(i2c_kwargs_controller["sda"], Pin.OPEN_DRAIN, Pin.PULL_UP)
+    Pin(i2c_controller_kwargs["scl"], Pin.OPEN_DRAIN, Pin.PULL_UP)
+    Pin(i2c_controller_kwargs["sda"], Pin.OPEN_DRAIN, Pin.PULL_UP)
 
 
 class TestMemory(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mem = bytearray(8)
-        cls.i2c = SoftI2C(**i2c_kwargs_controller)
-        cls.i2c_target = I2CTarget(*i2c_args_target, **i2c_kwargs_target, addr=ADDR, mem=cls.mem)
+        cls.i2c = SoftI2C(**i2c_controller_kwargs)
+        cls.i2c_target = I2CTarget(*i2c_target_args, **i2c_target_kwargs, addr=ADDR, mem=cls.mem)
         config_pull_up()
 
     @classmethod
@@ -140,8 +102,8 @@ class TestMemoryIRQ(unittest.TestCase):
         cls.mem = bytearray(8)
         cls.events = [0] * 8
         cls.num_events = 0
-        cls.i2c = SoftI2C(**i2c_kwargs_controller)
-        cls.i2c_target = I2CTarget(*i2c_args_target, **i2c_kwargs_target, addr=ADDR, mem=cls.mem)
+        cls.i2c = SoftI2C(**i2c_controller_kwargs)
+        cls.i2c_target = I2CTarget(*i2c_target_args, **i2c_target_kwargs, addr=ADDR, mem=cls.mem)
         cls.i2c_target.irq(TestMemoryIRQ.irq_handler)
         config_pull_up()
 
@@ -183,8 +145,8 @@ class TestPolling(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.i2c = SoftI2C(**i2c_kwargs_controller)
-        cls.i2c_target = I2CTarget(*i2c_args_target, addr=ADDR)
+        cls.i2c = SoftI2C(**i2c_controller_kwargs)
+        cls.i2c_target = I2CTarget(*i2c_target_args, addr=ADDR)
         cls.i2c_target.irq(
             TestPolling.irq_handler,
             I2CTarget.IRQ_WRITE_REQ | I2CTarget.IRQ_READ_REQ,
@@ -227,8 +189,8 @@ class TestIRQ(unittest.TestCase):
     def setUpClass(cls):
         cls.events = [0] * 8
         cls.num_events = 0
-        cls.i2c = SoftI2C(**i2c_kwargs_controller)
-        cls.i2c_target = I2CTarget(*i2c_args_target, addr=ADDR)
+        cls.i2c = SoftI2C(**i2c_controller_kwargs)
+        cls.i2c_target = I2CTarget(*i2c_target_args, addr=ADDR)
         cls.i2c_target.irq(
             TestIRQ.irq_handler,
             I2CTarget.IRQ_ADDR_MATCH_READ
