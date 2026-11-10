@@ -29,8 +29,10 @@
 
 #include "machine_i2c.h"
 #include "driver/i2c_slave.h"
+#if CONFIG_IDF_TARGET_ESP32S3
 #include "esp_intr_alloc.h"
 #include "soc/i2c_periph.h"
+#endif
 
 // These headers are needed to call i2c_ll_txfifo_rst().
 #include "hal/i2c_ll.h"
@@ -111,10 +113,12 @@ static bool i2c_slave_receive_cb(i2c_slave_dev_handle_t i2c_slave, const i2c_sla
 }
 
 static void i2c_target_init(machine_i2c_target_obj_t *self, machine_i2c_target_data_t *data, uint32_t addr, uint32_t addrsize, bool first_init) {
+    #if CONFIG_IDF_TARGET_ESP32S3
     if (self->stop_intr_handle != NULL) {
         esp_intr_free(self->stop_intr_handle);
         self->stop_intr_handle = NULL;
     }
+    #endif
     if (!first_init && self->handle != NULL) {
         i2c_del_slave_device(self->handle);
         self->handle = NULL;
@@ -159,6 +163,8 @@ static void i2c_target_init(machine_i2c_target_obj_t *self, machine_i2c_target_d
     // additional shared ISR on the same interrupt to reset the TX FIFO at the
     // end of a read.  Shared ISRs are inserted at the head of the dispatch
     // list, so this one runs before the IDF ISR clears the interrupt status.
+    // Note: Only register this for ESP32-S3 where it was tested and fixed for.
+    #if CONFIG_IDF_TARGET_ESP32S3
     ESP_ERROR_CHECK(esp_intr_alloc_intrstatus(
         i2c_periph_signal[self->config.i2c_port].irq,
         I2C_INTR_ALLOC_FLAG,
@@ -167,6 +173,7 @@ static void i2c_target_init(machine_i2c_target_obj_t *self, machine_i2c_target_d
         i2c_slave_complete_isr,
         self,
         &self->stop_intr_handle));
+    #endif
 }
 
 /******************************************************************************/
@@ -267,10 +274,12 @@ static void mp_machine_i2c_target_print(const mp_print_t *print, mp_obj_t self_i
 }
 
 static void mp_machine_i2c_target_deinit(machine_i2c_target_obj_t *self) {
+    #if CONFIG_IDF_TARGET_ESP32S3
     if (self->stop_intr_handle != NULL) {
         esp_intr_free(self->stop_intr_handle);
         self->stop_intr_handle = NULL;
     }
+    #endif
     if (self->handle != NULL) {
         i2c_del_slave_device(self->handle);
         self->handle = NULL;
